@@ -19,11 +19,28 @@ const firebaseConfig = {
 };
 
 // Initialize Firebase
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-// const analytics = getAnalytics(app);
+let app;
+let auth: any = null;
+let db: any = null;
 
-export const auth = getAuth(app);
-export const db = getFirestore(app);
+if (
+  typeof window !== "undefined" &&
+  !process.env.NEXT_PUBLIC_FIREBASE_API_KEY
+) {
+  console.warn(
+    "Missing NEXT_PUBLIC_FIREBASE_API_KEY. Firebase Client SDK not initialized."
+  );
+} else {
+  try {
+    app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+    auth = getAuth(app);
+    db = getFirestore(app);
+  } catch (error) {
+    console.error("Error initializing Firebase Client SDK:", error);
+  }
+}
+
+export { auth, db };
 
 
 // Import the functions you need from the SDKs you need

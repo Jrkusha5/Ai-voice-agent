@@ -10,10 +10,14 @@ const SESSION_DURATION = 60 * 60 * 24 * 7;
 export async function setSessionCookie(idToken: string) {
   const cookieStore = await cookies();
 
-  // Create session cookie
-  const sessionCookie = await auth.createSessionCookie(idToken, {
-    expiresIn: SESSION_DURATION * 1000, // milliseconds
-  });
+  let sessionCookie = idToken;
+
+  if (process.env.FIREBASE_PROJECT_ID && auth) {
+    // Create session cookie
+    sessionCookie = await auth.createSessionCookie(idToken, {
+      expiresIn: SESSION_DURATION * 1000, // milliseconds
+    });
+  }
 
   // Set cookie in the browser
   cookieStore.set("session", sessionCookie, {
@@ -27,6 +31,13 @@ export async function setSessionCookie(idToken: string) {
 
 export async function signUp(params: SignUpParams) {
   const { uid, name, email } = params;
+
+  if (!process.env.FIREBASE_PROJECT_ID || !db) {
+    return {
+      success: true,
+      message: "Account created successfully (Mock Mode).",
+    };
+  }
 
   try {
     // check if user exists in db
@@ -70,6 +81,11 @@ export async function signUp(params: SignUpParams) {
 export async function signIn(params: SignInParams) {
   const { email, idToken } = params;
 
+  if (!process.env.FIREBASE_PROJECT_ID || !auth) {
+    await setSessionCookie(idToken);
+    return { success: true };
+  }
+
   try {
     const userRecord = await auth.getUserByEmail(email);
     if (!userRecord)
@@ -102,6 +118,18 @@ export async function getCurrentUser(): Promise<User | null> {
 
   const sessionCookie = cookieStore.get("session")?.value;
   if (!sessionCookie) return null;
+
+  if (!process.env.FIREBASE_PROJECT_ID || !auth) {
+    // Return mock user if cookie is our mock token
+    if (sessionCookie === "mock-id-token") {
+      return {
+        id: "mock-uid",
+        name: "Mock User",
+        email: "mock@example.com",
+      } as User;
+    }
+    return null;
+  }
 
   try {
     const decodedClaims = await auth.verifySessionCookie(sessionCookie, true);

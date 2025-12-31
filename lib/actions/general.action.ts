@@ -6,8 +6,33 @@ import { google } from "@ai-sdk/google";
 import { db } from "@/firebase/admin";
 import { feedbackSchema } from "@/constants";
 
+const mockInterviews: Interview[] = [
+  {
+    id: "mock-1",
+    userId: "mock-uid",
+    role: "Frontend Engineer",
+    type: "Technical",
+    techstack: "React, Tailwind, Next.js",
+    createdAt: new Date().toISOString(),
+    finalized: true,
+  },
+  {
+    id: "mock-2",
+    userId: "mock-uid",
+    role: "Fullstack Developer",
+    type: "Mixed",
+    techstack: "Node.js, PostgreSQL",
+    createdAt: new Date().toISOString(),
+    finalized: true,
+  },
+];
+
 export async function createFeedback(params: CreateFeedbackParams) {
   const { interviewId, userId, transcript, feedbackId } = params;
+
+  if (!db) {
+    return { success: true, feedbackId: feedbackId || "mock-feedback-id" };
+  }
 
   try {
     const formattedTranscript = transcript
@@ -67,6 +92,10 @@ export async function createFeedback(params: CreateFeedbackParams) {
 }
 
 export async function getInterviewById(id: string): Promise<Interview | null> {
+  if (!db) {
+    return mockInterviews.find((i) => i.id === id) || mockInterviews[0];
+  }
+
   const interview = await db.collection("interviews").doc(id).get();
 
   return interview.data() as Interview | null;
@@ -76,6 +105,8 @@ export async function getFeedbackByInterviewId(
   params: GetFeedbackByInterviewIdParams
 ): Promise<Feedback | null> {
   const { interviewId, userId } = params;
+
+  if (!db) return null;
 
   const querySnapshot = await db
     .collection("feedback")
@@ -95,6 +126,8 @@ export async function getLatestInterviews(
 ): Promise<Interview[] | null> {
   const { userId, limit = 20 } = params;
 
+  if (!db) return mockInterviews;
+
   const interviews = await db
     .collection("interviews")
     .orderBy("createdAt", "desc")
@@ -112,6 +145,8 @@ export async function getLatestInterviews(
 export async function getInterviewsByUserId(
   userId: string
 ): Promise<Interview[] | null> {
+  if (!db) return mockInterviews;
+
   const interviews = await db
     .collection("interviews")
     .where("userId", "==", userId)

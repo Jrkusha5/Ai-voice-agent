@@ -46,14 +46,18 @@ const AuthForm = ({ type }: { type: FormType }) => {
       if (type === "sign-up") {
         const { name, email, password } = data;
 
-        const userCredential = await createUserWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
+        let uid = "mock-uid";
+        if (process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
+          const userCredential = await createUserWithEmailAndPassword(
+            auth,
+            email,
+            password
+          );
+          uid = userCredential.user.uid;
+        }
 
         const result = await signUp({
-          uid: userCredential.user.uid,
+          uid,
           name: name!,
           email,
           password,
@@ -69,13 +73,16 @@ const AuthForm = ({ type }: { type: FormType }) => {
       } else {
         const { email, password } = data;
 
-        const userCredential = await signInWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
+        let idToken = "mock-id-token";
+        if (process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
+          const userCredential = await signInWithEmailAndPassword(
+            auth,
+            email,
+            password
+          );
+          idToken = await userCredential.user.getIdToken();
+        }
 
-        const idToken = await userCredential.user.getIdToken();
         if (!idToken) {
           toast.error("Sign in Failed. Please try again.");
           return;

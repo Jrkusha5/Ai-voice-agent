@@ -4,6 +4,16 @@ import { getFirestore } from "firebase-admin/firestore";
 
 // Initialize Firebase Admin SDK
 function initFirebaseAdmin() {
+  if (!process.env.FIREBASE_PROJECT_ID) {
+    console.warn(
+      "Missing FIREBASE_PROJECT_ID. Firebase Admin SDK not initialized."
+    );
+    return {
+      auth: null as any,
+      db: null as any,
+    };
+  }
+
   const apps = getApps();
 
   if (!apps.length) {
