@@ -4,20 +4,15 @@ import { z } from "zod";
 import Link from "next/link";
 import Image from "next/image";
 import { toast } from "sonner";
-import { auth } from "@/firebase/client";
 import { useForm } from "react-hook-form";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
-
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-} from "firebase/auth";
+import { signIn } from "next-auth/react";
 
 import { Form } from "@/components/ui/form";
 import { Button } from "@/components/ui/button";
 
-import { signIn, signUp } from "@/lib/actions/auth.action";
+import { signUp } from "@/lib/actions/auth.action";
 import FormField from "./FormField";
 
 const authFormSchema = (type: FormType) => {
@@ -46,18 +41,7 @@ const AuthForm = ({ type }: { type: FormType }) => {
       if (type === "sign-up") {
         const { name, email, password } = data;
 
-        let uid = "mock-uid";
-        if (process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
-          const userCredential = await createUserWithEmailAndPassword(
-            auth,
-            email,
-            password
-          );
-          uid = userCredential.user.uid;
-        }
-
         const result = await signUp({
-          uid,
           name: name!,
           email,
           password,
@@ -73,25 +57,16 @@ const AuthForm = ({ type }: { type: FormType }) => {
       } else {
         const { email, password } = data;
 
-        let idToken = "mock-id-token";
-        if (process.env.NEXT_PUBLIC_FIREBASE_API_KEY) {
-          const userCredential = await signInWithEmailAndPassword(
-            auth,
-            email,
-            password
-          );
-          idToken = await userCredential.user.getIdToken();
-        }
+        const result = await signIn("credentials", {
+          email,
+          password,
+          redirect: false,
+        });
 
-        if (!idToken) {
-          toast.error("Sign in Failed. Please try again.");
+        if (result?.error) {
+          toast.error("Invalid email or password.");
           return;
         }
-
-        await signIn({
-          email,
-          idToken,
-        });
 
         toast.success("Signed in successfully.");
         router.push("/");

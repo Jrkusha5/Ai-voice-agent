@@ -1,59 +1,37 @@
 "use server";
 
-import { auth, db } from "@/firebase/admin";
-import { cookies } from "next/headers";
+import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
+import { signIn as nextAuthSignIn } from "@/lib/auth";
 
-// Session duration (1 week)
-const SESSION_DURATION = 60 * 60 * 24 * 7;
-
-// Set session cookie
-export async function setSessionCookie(idToken: string) {
-  const cookieStore = await cookies();
-
-  let sessionCookie = idToken;
-
-  if (process.env.FIREBASE_PROJECT_ID && auth) {
-    // Create session cookie
-    sessionCookie = await auth.createSessionCookie(idToken, {
-      expiresIn: SESSION_DURATION * 1000, // milliseconds
-    });
-  }
-
-  // Set cookie in the browser
-  cookieStore.set("session", sessionCookie, {
-    maxAge: SESSION_DURATION,
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    sameSite: "lax",
-  });
-}
+const prisma = new PrismaClient();
 
 export async function signUp(params: SignUpParams) {
-  const { uid, name, email } = params;
-
-  if (!process.env.FIREBASE_PROJECT_ID || !db) {
-    return {
-      success: true,
-      message: "Account created successfully (Mock Mode).",
-    };
-  }
+  const { name, email, password } = params;
 
   try {
-    // check if user exists in db
-    const userRecord = await db.collection("users").doc(uid).get();
-    if (userRecord.exists)
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existingUser) {
       return {
         success: false,
         message: "User already exists. Please sign in.",
       };
+    }
 
-    // save user to db
-    await db.collection("users").doc(uid).set({
-      name,
-      email,
-      // profileURL,
-      // resumeURL,
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Create user
+    await prisma.user.create({
+      data: {
+        name,
+        email,
+        password: hashedPassword,
+      },
     });
 
     return {
@@ -63,14 +41,6 @@ export async function signUp(params: SignUpParams) {
   } catch (error: any) {
     console.error("Error creating user:", error);
 
-    // Handle Firebase specific errors
-    if (error.code === "auth/email-already-exists") {
-      return {
-        success: false,
-        message: "This email is already in use",
-      };
-    }
-
     return {
       success: false,
       message: "Failed to create account. Please try again.",
@@ -79,82 +49,32 @@ export async function signUp(params: SignUpParams) {
 }
 
 export async function signIn(params: SignInParams) {
-  const { email, idToken } = params;
-
-  if (!process.env.FIREBASE_PROJECT_ID || !auth) {
-    await setSessionCookie(idToken);
-    return { success: true };
-  }
+  const { email, password } = params;
 
   try {
-    const userRecord = await auth.getUserByEmail(email);
-    if (!userRecord)
+    const result = await nextAuthSignIn("credentials", {
+      email,
+      password,
+      redirect: false,
+    });
+
+    if (result?.error) {
       return {
         success: false,
-        message: "User does not exist. Create an account.",
+        message: "Invalid email or password.",
       };
+    }
 
-    await setSessionCookie(idToken);
+    return {
+      success: true,
+      message: "Signed in successfully.",
+    };
   } catch (error: any) {
-    console.log("");
+    console.error("Error signing in:", error);
 
     return {
       success: false,
-      message: "Failed to log into account. Please try again.",
+      message: "Failed to sign in. Please try again.",
     };
   }
-}
-
-// Sign out user by clearing the session cookie
-export async function signOut() {
-  const cookieStore = await cookies();
-
-  cookieStore.delete("session");
-}
-
-// Get current user from session cookie
-export async function getCurrentUser(): Promise<User | null> {
-  const cookieStore = await cookies();
-
-  const sessionCookie = cookieStore.get("session")?.value;
-  if (!sessionCookie) return null;
-
-  if (!process.env.FIREBASE_PROJECT_ID || !auth) {
-    // Return mock user if cookie is our mock token
-    if (sessionCookie === "mock-id-token") {
-      return {
-        id: "mock-uid",
-        name: "Mock User",
-        email: "mock@example.com",
-      } as User;
-    }
-    return null;
-  }
-
-  try {
-    const decodedClaims = await auth.verifySessionCookie(sessionCookie, true);
-
-    // get user info from db
-    const userRecord = await db
-      .collection("users")
-      .doc(decodedClaims.uid)
-      .get();
-    if (!userRecord.exists) return null;
-
-    return {
-      ...userRecord.data(),
-      id: userRecord.id,
-    } as User;
-  } catch (error) {
-    console.log(error);
-
-    // Invalid or expired session
-    return null;
-  }
-}
-
-// Check if user is authenticated
-export async function isAuthenticated() {
-  const user = await getCurrentUser();
-  return !!user;
 }
