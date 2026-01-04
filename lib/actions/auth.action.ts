@@ -1,15 +1,21 @@
 "use server";
 
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
-import { signIn as nextAuthSignIn } from "@/lib/auth";
-
-const prisma = new PrismaClient();
+import { signIn as nextAuthSignIn, auth } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 
 export async function signUp(params: SignUpParams) {
   const { name, email, password } = params;
 
   try {
+    // Validate input
+    if (!name || !email || !password) {
+      return {
+        success: false,
+        message: "All fields are required.",
+      };
+    }
+
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
       where: { email },
@@ -40,10 +46,33 @@ export async function signUp(params: SignUpParams) {
     };
   } catch (error: any) {
     console.error("Error creating user:", error);
+    
+    // Provide more specific error messages
+    if (error?.code === 'P2002') {
+      return {
+        success: false,
+        message: "Email already exists. Please sign in.",
+      };
+    }
+    
+    if (error?.code === 'P1001') {
+      return {
+        success: false,
+        message: "Cannot connect to database. Please check your connection.",
+      };
+    }
+
+    // Log full error for debugging
+    console.error("Full error details:", {
+      message: error?.message,
+      code: error?.code,
+      meta: error?.meta,
+      stack: error?.stack,
+    });
 
     return {
       success: false,
-      message: "Failed to create account. Please try again.",
+      message: error?.message || "Failed to create account. Please try again.",
     };
   }
 }
@@ -76,5 +105,34 @@ export async function signIn(params: SignInParams) {
       success: false,
       message: "Failed to sign in. Please try again.",
     };
+  }
+}
+
+export async function getCurrentUser() {
+  try {
+    const session = await auth();
+    
+    if (!session?.user) {
+      return null;
+    }
+
+    return {
+      id: session.user.id as string,
+      name: session.user.name as string,
+      email: session.user.email as string,
+      profileURL: session.user.image || undefined,
+    };
+  } catch (error) {
+    console.error("Error getting current user:", error);
+    return null;
+  }
+}
+
+export async function isAuthenticated() {
+  try {
+    const session = await auth();
+    return !!session?.user;
+  } catch (error) {
+    return false;
   }
 }

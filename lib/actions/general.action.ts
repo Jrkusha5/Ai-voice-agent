@@ -3,7 +3,8 @@
 import { generateObject } from "ai";
 import { google } from "@ai-sdk/google";
 
-import { db } from "@/firebase/admin";
+// import { db } from "@/firebase/admin";
+const db = null; // Firebase Admin commented out - using local backend
 import { feedbackSchema } from "@/constants";
 
 const mockInterviews: Interview[] = [
