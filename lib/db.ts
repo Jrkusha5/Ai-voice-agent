@@ -9,7 +9,7 @@ const globalForPrisma = globalThis as unknown as {
 function getDatabaseUrl(): string {
   // Default connection string with URL-encoded password (@ becomes %40)
   // Default connection string with URL-encoded password (@ becomes %40)
-  const defaultUrl = "postgresql://postgres:MNSizone%40789@93.127.203.106:5432/voice_agent_db";
+  const defaultUrl = process.env.DATABASE_URL;
   // Force the correct URL to debug env var issues
   const url = defaultUrl; // process.env.DATABASE_URL || defaultUrl;
 

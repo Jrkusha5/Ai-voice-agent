@@ -116,15 +116,41 @@ export async function getCurrentUser() {
       return null;
     }
 
+    // Fetch user with role from database
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id as string },
+      select: { role: true }
+    });
+
     return {
       id: session.user.id as string,
       name: session.user.name as string,
       email: session.user.email as string,
       profileURL: session.user.image || undefined,
+      role: user?.role || "USER",
     };
   } catch (error) {
     console.error("Error getting current user:", error);
     return null;
+  }
+}
+
+export async function isAdmin() {
+  try {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return false;
+    }
+    
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id as string },
+      select: { role: true }
+    });
+    
+    return user?.role === "ADMIN";
+  } catch (error) {
+    console.error("Error checking admin status:", error);
+    return false;
   }
 }
 
