@@ -20,6 +20,8 @@ model User {
   role          String    @default("USER") // "USER" or "ADMIN"
   accounts      Account[]
   sessions      Session[]
+  attempts      InterviewAttempt[]
+  feedbacks     Feedback[]
   
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -62,4 +64,107 @@ model VerificationToken {
   expires    DateTime
 
   @@id([identifier, token])
+}
+
+// Interview Models
+model Interview {
+  id          String   @id @default(cuid())
+  role        String   // Job role (e.g., "Frontend Engineer")
+  level       String   // "Junior", "Mid", "Senior"
+  type        String   // "Technical", "Behavioral", "Mixed"
+  techstack   String[] // Array of technologies
+  questions   String[] // Predefined questions (legacy)
+  description String?
+  duration    Int?     // Expected duration in minutes
+  finalized   Boolean  @default(false)
+  createdBy   String?  // Admin user ID who created it
+  
+  questionsList Question[]
+  attempts      InterviewAttempt[]
+  feedbacks     Feedback[]
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Question {
+  id           String   @id @default(cuid())
+  interviewId  String
+  type         String   // "multiple-choice", "text", "coding"
+  question     String
+  options      String[] // For multiple choice questions
+  correctAnswer String? // For quiz questions
+  explanation  String?  // Explanation for the answer
+  points       Int      @default(1)
+  order        Int      @default(0) // Order in interview
+  
+  interview    Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  answers      Answer[]
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  @@index([interviewId])
+}
+
+model InterviewAttempt {
+  id          String   @id @default(cuid())
+  interviewId String
+  userId      String
+  status      String   @default("in-progress") // "in-progress", "completed", "abandoned"
+  quizScore   Int?     // Total score from quiz
+  totalTime   Int?     // Total time in seconds
+  currentQuestionIndex Int @default(0)
+  
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answers     Answer[]
+  feedback    Feedback?
+  
+  createdAt   DateTime @default(now())
+  completedAt DateTime?
+  updatedAt   DateTime @updatedAt
+  
+  @@index([interviewId])
+  @@index([userId])
+}
+
+model Answer {
+  id          String   @id @default(cuid())
+  questionId  String
+  attemptId   String
+  userAnswer  String
+  isCorrect   Boolean?
+  score       Int?
+  timeSpent   Int?     // Time spent on this question in seconds
+  
+  question    Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  attempt     InterviewAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  
+  createdAt   DateTime @default(now())
+  
+  @@index([questionId])
+  @@index([attemptId])
+}
+
+model Feedback {
+  id                    String   @id @default(cuid())
+  interviewId           String
+  attemptId             String?  @unique
+  userId                String
+  totalScore            Int
+  categoryScores        Json     // Array of category scores
+  strengths             String[]
+  areasForImprovement   String[]
+  finalAssessment       String
+  
+  interview             Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  attempt               InterviewAttempt? @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  @@index([interviewId])
+  @@index([userId])
 }

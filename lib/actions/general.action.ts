@@ -2,9 +2,7 @@
 
 import { generateObject } from "ai";
 import { google } from "@ai-sdk/google";
-
-// import { db } from "@/firebase/admin";
-const db = null; // Firebase Admin commented out - using local backend
+import { prisma } from "@/lib/db";
 import { feedbackSchema } from "@/constants";
 
 const mockInterviews: Interview[] = [
@@ -31,11 +29,20 @@ const mockInterviews: Interview[] = [
 export async function createFeedback(params: CreateFeedbackParams) {
   const { interviewId, userId, transcript, feedbackId } = params;
 
-  if (!db) {
-    return { success: true, feedbackId: feedbackId || "mock-feedback-id" };
-  }
-
   try {
+    // Get attempt if feedbackId is provided (feedbackId is actually attemptId)
+    let attemptId = feedbackId || null;
+    
+    // Verify attempt exists and belongs to user
+    if (attemptId) {
+      const attempt = await prisma.interviewAttempt.findUnique({
+        where: { id: attemptId },
+      });
+      if (!attempt || attempt.userId !== userId) {
+        attemptId = null;
+      }
+    }
+
     const formattedTranscript = transcript
       .map(
         (sentence: { role: string; content: string }) =>
@@ -49,8 +56,9 @@ export async function createFeedback(params: CreateFeedbackParams) {
       }),
       schema: feedbackSchema,
       prompt: `
-        You are an AI interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories. Be thorough and detailed in your analysis. Don't be lenient with the candidate. If there are mistakes or areas for improvement, point them out.
-        Transcript:
+        You are an AI interviewer analyzing a quiz-based interview. Your task is to evaluate the candidate based on structured categories. Be thorough and detailed in your analysis. Don't be lenient with the candidate. If there are mistakes or areas for improvement, point them out.
+        
+        Interview Transcript (Questions and Answers):
         ${formattedTranscript}
 
         Please score the candidate from 0 to 100 in the following areas. Do not add categories other than the ones provided:
@@ -61,31 +69,24 @@ export async function createFeedback(params: CreateFeedbackParams) {
         - **Confidence & Clarity**: Confidence in responses, engagement, and clarity.
         `,
       system:
-        "You are a professional interviewer analyzing a mock interview. Your task is to evaluate the candidate based on structured categories",
+        "You are a professional interviewer analyzing a quiz-based interview. Your task is to evaluate the candidate based on structured categories",
     });
 
-    const feedback = {
-      interviewId: interviewId,
-      userId: userId,
-      totalScore: object.totalScore,
-      categoryScores: object.categoryScores,
-      strengths: object.strengths,
-      areasForImprovement: object.areasForImprovement,
-      finalAssessment: object.finalAssessment,
-      createdAt: new Date().toISOString(),
-    };
+    // Create feedback
+    const feedback = await prisma.feedback.create({
+      data: {
+        interviewId: interviewId,
+        userId: userId,
+        attemptId: attemptId,
+        totalScore: object.totalScore,
+        categoryScores: object.categoryScores as any,
+        strengths: object.strengths,
+        areasForImprovement: object.areasForImprovement,
+        finalAssessment: object.finalAssessment,
+      },
+    });
 
-    let feedbackRef;
-
-    if (feedbackId) {
-      feedbackRef = db.collection("feedback").doc(feedbackId);
-    } else {
-      feedbackRef = db.collection("feedback").doc();
-    }
-
-    await feedbackRef.set(feedback);
-
-    return { success: true, feedbackId: feedbackRef.id };
+    return { success: true, feedbackId: feedback.id };
   } catch (error) {
     console.error("Error saving feedback:", error);
     return { success: false };
@@ -93,13 +94,34 @@ export async function createFeedback(params: CreateFeedbackParams) {
 }
 
 export async function getInterviewById(id: string): Promise<Interview | null> {
-  if (!db) {
-    return mockInterviews.find((i) => i.id === id) || mockInterviews[0];
+  try {
+    const interview = await prisma.interview.findUnique({
+      where: { id },
+      include: {
+        questionsList: {
+          orderBy: { order: "asc" },
+        },
+      },
+    });
+
+    if (!interview) return null;
+
+    // Convert to Interview interface format
+    return {
+      id: interview.id,
+      role: interview.role,
+      level: interview.level,
+      questions: interview.questions, // Legacy field
+      techstack: interview.techstack,
+      createdAt: interview.createdAt.toISOString(),
+      userId: "", // Not used in current interface
+      type: interview.type,
+      finalized: interview.finalized,
+    };
+  } catch (error) {
+    console.error("Error fetching interview:", error);
+    return null;
   }
-
-  const interview = await db.collection("interviews").doc(id).get();
-
-  return interview.data() as Interview | null;
 }
 
 export async function getFeedbackByInterviewId(
@@ -107,19 +129,33 @@ export async function getFeedbackByInterviewId(
 ): Promise<Feedback | null> {
   const { interviewId, userId } = params;
 
-  if (!db) return null;
+  try {
+    const feedback = await prisma.feedback.findFirst({
+      where: {
+        interviewId,
+        userId,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
 
-  const querySnapshot = await db
-    .collection("feedback")
-    .where("interviewId", "==", interviewId)
-    .where("userId", "==", userId)
-    .limit(1)
-    .get();
+    if (!feedback) return null;
 
-  if (querySnapshot.empty) return null;
-
-  const feedbackDoc = querySnapshot.docs[0];
-  return { id: feedbackDoc.id, ...feedbackDoc.data() } as Feedback;
+    return {
+      id: feedback.id,
+      interviewId: feedback.interviewId,
+      totalScore: feedback.totalScore,
+      categoryScores: feedback.categoryScores as any,
+      strengths: feedback.strengths,
+      areasForImprovement: feedback.areasForImprovement,
+      finalAssessment: feedback.finalAssessment,
+      createdAt: feedback.createdAt.toISOString(),
+    };
+  } catch (error) {
+    console.error("Error fetching feedback:", error);
+    return null;
+  }
 }
 
 export async function getLatestInterviews(
@@ -127,35 +163,67 @@ export async function getLatestInterviews(
 ): Promise<Interview[] | null> {
   const { userId, limit = 20 } = params;
 
-  if (!db) return mockInterviews;
+  try {
+    const interviews = await prisma.interview.findMany({
+      where: {
+        finalized: true,
+        // Exclude user's own interviews if needed
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      take: limit,
+    });
 
-  const interviews = await db
-    .collection("interviews")
-    .orderBy("createdAt", "desc")
-    .where("finalized", "==", true)
-    .where("userId", "!=", userId)
-    .limit(limit)
-    .get();
-
-  return interviews.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  })) as Interview[];
+    return interviews.map((interview) => ({
+      id: interview.id,
+      role: interview.role,
+      level: interview.level,
+      questions: interview.questions,
+      techstack: interview.techstack,
+      createdAt: interview.createdAt.toISOString(),
+      userId: "",
+      type: interview.type,
+      finalized: interview.finalized,
+    }));
+  } catch (error) {
+    console.error("Error fetching interviews:", error);
+    return [];
+  }
 }
 
 export async function getInterviewsByUserId(
   userId: string
 ): Promise<Interview[] | null> {
-  if (!db) return mockInterviews;
+  try {
+    // Get interviews from attempts
+    const attempts = await prisma.interviewAttempt.findMany({
+      where: {
+        userId,
+        status: "completed",
+      },
+      include: {
+        interview: true,
+      },
+      orderBy: {
+        createdAt: "desc",
+      },
+      distinct: ["interviewId"],
+    });
 
-  const interviews = await db
-    .collection("interviews")
-    .where("userId", "==", userId)
-    .orderBy("createdAt", "desc")
-    .get();
-
-  return interviews.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  })) as Interview[];
+    return attempts.map((attempt) => ({
+      id: attempt.interview.id,
+      role: attempt.interview.role,
+      level: attempt.interview.level,
+      questions: attempt.interview.questions,
+      techstack: attempt.interview.techstack,
+      createdAt: attempt.interview.createdAt.toISOString(),
+      userId: userId,
+      type: attempt.interview.type,
+      finalized: attempt.interview.finalized,
+    }));
+  } catch (error) {
+    console.error("Error fetching user interviews:", error);
+    return [];
+  }
 }

@@ -1,21 +1,16 @@
-import Agent from "@/components/Agent";
+import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/actions/auth.action";
 
 const Page = async () => {
   const user = await getCurrentUser();
+  
+  if (!user) {
+    redirect("/sign-in");
+  }
 
-  return (
-    <>
-      <h3>Interview generation</h3>
-
-      <Agent
-        userName={user?.name!}
-        userId={user?.id}
-        profileImage={user?.profileURL}
-        type="generate"
-      />
-    </>
-  );
+  // Redirect to home page - interview generation will be handled differently
+  // Users can select from available interviews
+  redirect("/");
 };
 
 export default Page;
